@@ -33,10 +33,12 @@ const litAuthClient = new LitAuthClient({
 
 litAuthClient.initProvider(ProviderType.Google, {
   // The URL of your web app where users will be redirected after authentication
-  redirectUri: "http://localhost:5174/callback",
+  redirectUri: "https://lit-signer-mina.web.app/callback",
+  // redirectUri: "http://localhost:5173/callback",
 });
 
 const LitContext = createContext<{
+  ready: boolean;
   client: LitAuthClient;
   googleSignIn?: () => unknown;
   mintKey?: (providerType: ProviderType, authMethod: AuthMethod) => unknown;
@@ -48,6 +50,7 @@ const LitContext = createContext<{
   wrappedKeys: StoredKeyMetadata[];
   signMessageWithKey?: (keyId: string, message: string) => Promise<unknown>;
 }>({
+  ready: false,
   client: litAuthClient,
   accounts: [],
   wrappedKeys: [],
@@ -71,6 +74,7 @@ type AuthMethodKeys = {
 };
 
 export function LitProvider({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState<boolean>(false);
   const [authMethods, setAuthMethods] = useState<
     Record<ProviderType, AuthMethodKeys>
   >({} as Record<ProviderType, AuthMethodKeys>);
@@ -91,7 +95,9 @@ export function LitProvider({ children }: { children: ReactNode }) {
       localStorage.getItem("auth_methods") || "[]",
     ) as ProviderType[];
 
-    console.log(methods);
+    if (methods.length === 0) {
+      setReady(true);
+    }
 
     for (const providerType of methods) {
       const rawAuthMethod = localStorage.getItem(`auth_method_${providerType}`);
@@ -113,25 +119,60 @@ export function LitProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    console.log("getting session signatures");
+
     getSessionSigs(activeProviderType, activeKey).then(setSessionSigs);
   }, [activeKey]);
 
   useEffect(() => {
     const client = litAuthClient.litNodeClient;
 
+    if (!activeProviderType) {
+      console.log("active provider not found");
+      
+      return;
+    }
+
+    if (!activeKey) {
+      console.log("active key not found");
+      
+      return;
+    }
+
     if (!sessionSigs) {
+      console.log("session signatures not found");
+
+      getSessionSigs(activeProviderType, activeKey).then(setSessionSigs);
+
       return;
     }
 
     client
       .connect()
-      .then(() =>
-        api.listEncryptedKeyMetadata({
+      .then(() => {
+        console.log("fetching wrapped keys");
+
+        return api.listEncryptedKeyMetadata({
           litNodeClient: client,
           pkpSessionSigs: sessionSigs,
-        }),
-      )
-      .then(setWrappedKeys)
+        });
+      })
+      .then((k) => {
+        console.log("fetched wrapped keys", k);
+
+        if (k.length === 0) {
+          return createWrappedKey().then(() => api.listEncryptedKeyMetadata({
+            litNodeClient: client,
+            pkpSessionSigs: sessionSigs,
+          }));
+        }
+
+        return k;
+      })
+      .then((wKeys) => {
+        setWrappedKeys(wKeys);
+        setReady(true);
+      })
       .catch((err) => {
         console.log(JSON.stringify(err));
 
@@ -166,6 +207,8 @@ export function LitProvider({ children }: { children: ReactNode }) {
     authMethodType: ProviderType,
     authMethod: AuthMethod,
   ) {
+    console.log("Adding auth method");
+
     const provider = litAuthClient.getProvider(authMethodType);
 
     if (!provider) {
@@ -174,9 +217,21 @@ export function LitProvider({ children }: { children: ReactNode }) {
       );
     }
 
+    console.log("Set Provider type");
+
     setProviderType(authMethodType);
 
-    const keys = await fetchKeys(provider, authMethod);
+    let keys = await fetchKeys(provider, authMethod);
+
+    if (keys.length === 0) {
+      console.log("No keys found, minting a new key");
+      await mintKey(authMethodType, authMethod);
+
+      keys = await fetchKeys(provider, authMethod);
+    }
+
+    setActiveKey(keys[0]);
+
     const methodKeys: AuthMethodKeys = {
       method: authMethod,
       keys: keys.reduce(
@@ -369,6 +424,7 @@ export function LitProvider({ children }: { children: ReactNode }) {
   return (
     <LitContext.Provider
       value={{
+        ready: ready,
         client: litAuthClient,
         googleSignIn,
         mintKey,

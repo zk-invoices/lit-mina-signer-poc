@@ -23,6 +23,7 @@ const signer = new MinaSigner({ network: "mainnet" });
 
 function App() {
   const {
+    ready,
     accounts,
     authenticate,
     googleSignIn,
@@ -62,24 +63,21 @@ function App() {
     window.alert(verified ? "Message Verified" : "Message Not Verified");
   }
 
+
+  if (!ready) {
+    return <CardContent><p>Loading Lit Mina Signer</p></CardContent>
+  }
+
   if (googleSignIn && accounts.length === 0) {
     return (
-      <Card className="w-[640px] mx-auto mt-16">
-        <CardHeader>
-          <CardTitle>Lit Mina Signer</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={googleSignIn}>Authenticate With Google</Button>{" "}
-        </CardContent>
-      </Card>
+      <CardContent>
+        <Button onClick={googleSignIn}>Authenticate With Google</Button>{" "}
+      </CardContent>
     );
   }
 
   return (
-    <Card className="w-[640px] mx-auto mt-16">
-      <CardHeader>
-        <CardTitle>Lit Mina Signer</CardTitle>
-      </CardHeader>
+    <>
       <CardContent>
         <div className="space-y-4">
           <Select onValueChange={setActiveKey}>
@@ -118,8 +116,17 @@ function App() {
       <CardFooter>
         <Button onClick={createWrappedKey}>Create New Key</Button>
       </CardFooter>
-    </Card>
+    </>
   );
 }
 
-export default App;
+function Container () {
+  return <Card className="w-[640px] mx-auto mt-16">
+    <CardHeader>
+      <CardTitle>Lit Mina Signer</CardTitle>
+    </CardHeader>
+    <App />
+  </Card>
+}
+
+export default Container;
